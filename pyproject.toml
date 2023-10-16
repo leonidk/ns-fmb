@@ -1,13 +1,13 @@
 [project]
-name = "nerfstudio-method-template"
-description = "Template repository for creating and registering new methods in nerfstudio."
-version = "0.1.0"
+name = "ns-fmb"
+description = "A simple nerfstudio implementation of 3D Gaussian rendering via Fuzzy Metaball equations."
+version = "0.0.1"
 
 dependencies = ["nerfstudio >= 0.3.0"] 
 
 [tool.setuptools.packages.find]
-include = ["method_template*"]
+include = ["method_fmb*"]
 
 # register the entry point of your new method here:
 [project.entry-points.'nerfstudio.method_configs']
-method-template = 'method_template.template_config:method_template'
+method-fmb = 'method_fmb.fmb_config:method_fmb'
