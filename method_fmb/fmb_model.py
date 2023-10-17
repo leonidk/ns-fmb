@@ -9,15 +9,29 @@ from typing import Any, Dict, List, Tuple, Type, Literal
 import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.nn import Parameter
+from torch.nn import (
+    MSELoss,
+    L1Loss,
+    SmoothL1Loss,
+)
 from torchmetrics.functional import structural_similarity_index_measure
 from torchmetrics.image import PeakSignalNoiseRatio
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+
+
+from nerfstudio.field_components.activations import trunc_exp
+
+from nerfstudio.field_components.encodings import NeRFEncoding
+from nerfstudio.field_components.field_heads import FieldHeadNames
+from nerfstudio.field_components.spatial_distortions import SceneContraction
+from nerfstudio.fields.vanilla_nerf_field import NeRFField
+from nerfstudio.model_components.ray_samplers import LinearDisparitySampler
 
 # from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig  # for subclassing Nerfacto model
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 from nerfstudio.model_components.losses import (
-    MSELoss,
+
     distortion_loss,
     interlevel_loss,
     orientation_loss,
@@ -32,6 +46,11 @@ class FMBModelConfig(ModelConfig):
     """Fuzzy Metaballs Model Configuration."""
 
     _target: Type = field(default_factory=lambda: FMBModel)
+
+    # bg_settings
+    background_model: Literal["mlp", "color"] = "mlp"
+    far_plane_bg: float = 1000.0
+    num_samples_outside: int = 4
 
     # init settings
     num_gaussians: int = 512
@@ -62,7 +81,7 @@ class FMBModel(Model):
         self.precs = None
         self.wlogs = None
         self.colors = None
-
+        #torch.autograd.set_detect_anomaly(True)
         super().__init__(
             config=config,
             **kwargs,
@@ -78,17 +97,37 @@ class FMBModel(Model):
         self.precs = Parameter(self.config.cov_dist*torch.tile(torch.eye(3),(num_g,1,)).reshape((-1,3,3)))
         self.wlogs = Parameter(torch.log(self.config.w_scale*torch.ones(num_g)))
         self.colors = Parameter(torch.randn((num_g,3)))
-        self.bg_color = Parameter(torch.randn(3))
 
         # losses
-        self.rgb_loss = MSELoss()
+        self.rgb_loss = L1Loss()
 
         # renderers
-        #self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
+        #self.renderer_rgb = RGBRenderer()#background_color=self.config.background_color)
         #self.renderer_accumulation = AccumulationRenderer()
         #self.renderer_depth = DepthRenderer(method="median")
         #self.renderer_expected_depth = DepthRenderer(method="expected")
         #self.renderer_normals = NormalsRenderer()
+
+        if self.config.background_model == "mlp":
+            position_encoding = NeRFEncoding(
+                in_dim=3, num_frequencies=10, min_freq_exp=0.0, max_freq_exp=9.0, include_input=True
+            )
+            direction_encoding = NeRFEncoding(
+                in_dim=3, num_frequencies=4, min_freq_exp=0.0, max_freq_exp=3.0, include_input=True
+            )
+            self.scene_contraction = SceneContraction(order=float("inf"))
+            self.field_background = NeRFField(
+                position_encoding=position_encoding,
+                direction_encoding=direction_encoding,
+                spatial_distortion=self.scene_contraction,
+            )
+            self.sampler_bg = LinearDisparitySampler(num_samples=self.config.num_samples_outside)
+            self.renderer_rgb = RGBRenderer()
+
+        else:
+            # dummy background model
+            self.field_background = Parameter(torch.randn(3))
+
 
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -102,14 +141,20 @@ class FMBModel(Model):
         param_groups["means"] =[self.means] 
         param_groups["precs"] =[self.precs]
         param_groups["wlog"] =[self.wlogs]
-        param_groups["colors"] =[self.colors,self.bg_color]
+        param_groups["colors"] =[self.colors]
+        param_groups["background"] = (
+            [self.field_background]
+            if isinstance(self.field_background, Parameter)
+            else list(self.field_background.parameters())
+        )
+        #param_groups = {'fields':sum(param_groups.values(),[])}
         return param_groups
  
 
     def get_outputs(self, ray_bundle: RayBundle):
         if self.means is None:
             raise ValueError("populate_fields() must be called before get_outputs")
-        
+
         tprec = torch.transpose(torch.triu(self.precs),1,2)
 
         # basic quantities compute
@@ -137,13 +182,16 @@ class FMBModel(Model):
         norm_est = norm_sign[:,:,None] * norm_b_est
 
         # combine
-        sig1 = (z > 0)
+        sig1 = (z > 0) + 1e-9
         d2_z = torch.nan_to_num(d2/sig1)
 
         if self.config.use_two_param:
-            est_alpha = 1-torch.exp(-torch.exp(d2_z).sum(axis=1))
-            est_logit = -z*self.config.beta1 + self.config.beta2*d2
-            w = sig1*torch.softmax(est_logit,1)+1e-46
+            est_alpha = 1-torch.exp(-(sig1*torch.exp(d2)).sum(axis=1))
+            # trying to get this numerically stable
+            est_logit = -torch.where(sig1>0.5,z,-z)*self.config.beta1 + self.config.beta2*d2_z
+            est_logit = est_logit - est_logit.max(dim=1,keepdims=True)[0]
+            w = torch.exp(est_logit)
+            #w = sig1*torch.softmax(est_logit,1)+1e-46
         else:
             densities = torch.exp(d2_z)
             zidx = torch.argsort(z,axis=1)#descending=True)
@@ -163,7 +211,21 @@ class FMBModel(Model):
 
         pad_alpha = est_alpha[:,None]
         obj_color = w @ torch.sigmoid(self.colors)
-        final_color = (1-pad_alpha) * torch.sigmoid(self.bg_color) + pad_alpha * obj_color
+        if self.config.background_model == "mlp":
+            ray_bundle.nears = ray_bundle.fars
+            ray_bundle.fars = torch.ones_like(ray_bundle.fars) * self.config.far_plane_bg
+
+            ray_samples_bg = self.sampler_bg(ray_bundle)
+            field_outputs_bg = self.field_background(ray_samples_bg)
+            weights_bg = ray_samples_bg.get_weights(field_outputs_bg[FieldHeadNames.DENSITY])
+
+            bg_colors = self.renderer_rgb(rgb=field_outputs_bg[FieldHeadNames.RGB], weights=weights_bg)
+        else:
+            bg_colors = torch.sigmoid(self.field_background)
+
+        final_color = (1-pad_alpha) * bg_colors + pad_alpha * obj_color
+        final_z = (1-est_alpha) * self.config.far_plane_bg + est_alpha * final_z
+        final_norm = (1-pad_alpha) * (-tr) + pad_alpha * final_norm
 
         outputs = {
             "rgb": final_color,
@@ -177,11 +239,14 @@ class FMBModel(Model):
         # Scaling metrics by coefficients to create the losses.
         device = outputs["rgb"].device
         image = batch["image"].to(device)
-        rgb_loss_fine = torch.abs(image - outputs["rgb"]).mean()
+        #pred_img, gt_img = self.renderer_rgb.blend_background_for_loss_computation(image,outputs["rgb"],outputs["accumulation"])
+        #rgb_loss_fine = self.rgb_loss(pred_img, gt_img)#.mean()
+        rgb_loss_fine = self.rgb_loss(image, outputs["rgb"])#.mean()
 
-        clip_alpha = torch.clamp(outputs["accumulation"],1e-6,1-1e-6)
+        clip_alpha = torch.clamp(outputs["accumulation"],0.01,0.99)
         beta_loss = torch.log(clip_alpha) + torch.log(1-clip_alpha)
         loss_dict = {"rgb_loss": rgb_loss_fine, 'beta_loss': self.config.beta_loss_scale*beta_loss.mean()}
+        #print(loss_dict)
         return loss_dict
 
     def get_image_metrics_and_images(
