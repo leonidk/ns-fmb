@@ -144,7 +144,7 @@ class FMBModel(Model):
         #param_groups = {'fields':sum(param_groups.values(),[])}
         return param_groups
  
-
+    #@torch.compile()
     def get_outputs(self, ray_bundle: RayBundle):
         if self.means is None:
             raise ValueError("populate_fields() must be called before get_outputs")
@@ -221,7 +221,7 @@ class FMBModel(Model):
         final_z = (1-est_alpha) * self.config.far_plane_bg + est_alpha * final_z
         final_norm = (1-pad_alpha) * (-tr) + pad_alpha * final_norm
         
-        fg_color = (1-pad_alpha) * torch.ones((1,3),device=obj_color.device) + pad_alpha * obj_color
+        fg_color = (1-pad_alpha) * 0.5 * torch.ones((1,3),device=obj_color.device) + pad_alpha * obj_color
 
         outputs = {
             "rgb": final_color,

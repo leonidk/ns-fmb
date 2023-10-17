@@ -34,9 +34,9 @@ method_fmb = MethodSpecification(
         mixed_precision=True,
         pipeline=VanillaPipelineConfig(
             datamanager=VanillaDataManagerConfig(
-                dataparser=NerfstudioDataParserConfig(),
-                train_num_rays_per_batch=1024,
-                eval_num_rays_per_batch=1024,
+                dataparser=NerfstudioDataParserConfig(downscale_factor=8),
+                train_num_rays_per_batch=1<<13,
+                eval_num_rays_per_batch=1<<13,
             ),
             model=FMBModelConfig(
                 eval_num_rays_per_chunk=1 << 15,
