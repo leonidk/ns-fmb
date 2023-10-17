@@ -4,22 +4,19 @@ Fuzzy Metaballs Model File
 Currently this subclasses the Nerfacto model. Consider subclassing from the base Model.
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple, Type, Literal
+from typing import Dict, List, Tuple, Type, Literal
 
 import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.nn import Parameter
 from torch.nn import (
-    MSELoss,
     L1Loss,
-    SmoothL1Loss,
 )
 from torchmetrics.functional import structural_similarity_index_measure
 from torchmetrics.image import PeakSignalNoiseRatio
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 
-from nerfstudio.field_components.activations import trunc_exp
 
 from nerfstudio.field_components.encodings import NeRFEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
@@ -30,15 +27,7 @@ from nerfstudio.model_components.ray_samplers import LinearDisparitySampler
 # from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig  # for subclassing Nerfacto model
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
-from nerfstudio.model_components.losses import (
-
-    distortion_loss,
-    interlevel_loss,
-    orientation_loss,
-    pred_normal_loss,
-    scale_gradients_by_distance_squared,
-)
-from nerfstudio.model_components.renderers import AccumulationRenderer, DepthRenderer, NormalsRenderer, RGBRenderer
+from nerfstudio.model_components.renderers import RGBRenderer
 from nerfstudio.utils import colormaps
 
 @dataclass
@@ -53,13 +42,13 @@ class FMBModelConfig(ModelConfig):
     num_samples_outside: int = 4
 
     # init settings
-    num_gaussians: int = 512
+    num_gaussians: int = 96
     mean_dist: float = 1e-3
     cov_dist: float = 80
     w_scale: float = 0.5
 
     # loss settings
-    beta_loss_scale: float = 0.0
+    beta_loss_scale: float = 1e-4
 
     # render settings
     use_two_param: bool = True
@@ -115,8 +104,13 @@ class FMBModel(Model):
             direction_encoding = NeRFEncoding(
                 in_dim=3, num_frequencies=4, min_freq_exp=0.0, max_freq_exp=3.0, include_input=True
             )
+            
             self.scene_contraction = SceneContraction(order=float("inf"))
             self.field_background = NeRFField(
+                base_mlp_num_layers = 4, 
+                base_mlp_layer_width = 64, 
+                head_mlp_num_layers = 2, 
+                head_mlp_layer_width = 32,
                 position_encoding=position_encoding,
                 direction_encoding=direction_encoding,
                 spatial_distortion=self.scene_contraction,
@@ -226,9 +220,13 @@ class FMBModel(Model):
         final_color = (1-pad_alpha) * bg_colors + pad_alpha * obj_color
         final_z = (1-est_alpha) * self.config.far_plane_bg + est_alpha * final_z
         final_norm = (1-pad_alpha) * (-tr) + pad_alpha * final_norm
+        
+        fg_color = (1-pad_alpha) * torch.ones((1,3),device=obj_color.device) + pad_alpha * obj_color
 
         outputs = {
             "rgb": final_color,
+            "rgb_fg": fg_color,
+            "rgb_bg": bg_colors,
             "accumulation": est_alpha,
             "depth": final_z,
             "normals": final_norm,
@@ -275,7 +273,6 @@ class FMBModel(Model):
         assert isinstance(fine_ssim, torch.Tensor)
 
         metrics_dict = {
-            "psnr": float(fine_psnr.item()),
             "psnr": float(fine_psnr),
             "ssim": float(fine_ssim),
             "lpips": float(fine_lpips),

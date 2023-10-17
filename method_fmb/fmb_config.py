@@ -6,24 +6,19 @@ A custom method that implements Fuzzy Metaballs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Type
 
-import torch
 
 from nerfstudio.data.datamanagers.base_datamanager import (
-    VanillaDataManager,
     VanillaDataManagerConfig,
 )
 from nerfstudio.pipelines.base_pipeline import (
-    VanillaPipeline,
     VanillaPipelineConfig,
 )
 from method_fmb.fmb_model import FMBModelConfig
 
 from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
-from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig, OptimizerConfig 
+from nerfstudio.engine.optimizers import AdamOptimizerConfig 
 from nerfstudio.engine.schedulers import (
     ExponentialDecaySchedulerConfig,
 )
@@ -61,7 +56,7 @@ method_fmb = MethodSpecification(
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=50000),
             },
             "colors": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-6),
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=1e-8),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=50000),
             },
             "background": {
