@@ -48,7 +48,7 @@ class FMBModelConfig(ModelConfig):
     w_scale: float = 0.5
 
     # loss settings
-    beta_loss_scale: float = 1e-4
+    beta_loss_scale: float = 3e-5
 
     # render settings
     use_two_param: bool = True
@@ -250,9 +250,11 @@ class FMBModel(Model):
     def get_image_metrics_and_images(
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
-        image = batch["image"].to(outputs["rgb_coarse"].device)
-        image = self.renderer_rgb.blend_background(image)
+        image = batch["image"].to(outputs["rgb"].device)
+        #image = self.renderer_rgb.blend_background(image)
         rgb_fine = outputs["rgb"]
+        rgb_loss_fine = self.rgb_loss(image, outputs["rgb"])#.mean()
+
         acc_fine = colormaps.apply_colormap(outputs["accumulation"])
         assert self.config.collider_params is not None
         depth_fine = colormaps.apply_depth_colormap(
@@ -271,10 +273,11 @@ class FMBModel(Model):
         fine_ssim = self.ssim(image, rgb_fine)
         fine_lpips = self.lpips(image, rgb_fine)
         assert isinstance(fine_ssim, torch.Tensor)
-
+        
         metrics_dict = {
             "psnr": float(fine_psnr),
             "ssim": float(fine_ssim),
             "lpips": float(fine_lpips),
+            "rgb": float(rgb_loss_fine),
         }
         return metrics_dict, images_dict
