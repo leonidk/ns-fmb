@@ -11,6 +11,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from torch.nn import Parameter
 from torch.nn import (
     L1Loss,
+    MSELoss
 )
 from torchmetrics.functional import structural_similarity_index_measure
 from torchmetrics.image import PeakSignalNoiseRatio
@@ -42,13 +43,13 @@ class FMBModelConfig(ModelConfig):
     num_samples_outside: int = 4
 
     # init settings
-    num_gaussians: int = 96
+    num_gaussians: int = 40
     mean_dist: float = 1e-3
     cov_dist: float = 80
     w_scale: float = 0.5
 
     # loss settings
-    beta_loss_scale: float = 3e-5
+    beta_loss_scale: float = 1e-5
 
     # render settings
     use_two_param: bool = True
@@ -83,12 +84,12 @@ class FMBModel(Model):
         num_g = self.config.num_gaussians
         tmp_dist = MultivariateNormal(torch.zeros(3),torch.eye(3))
         self.means = Parameter(self.config.mean_dist*tmp_dist.sample((num_g,)))
-        self.precs = Parameter(self.config.cov_dist*torch.tile(torch.eye(3),(num_g,1,)).reshape((-1,3,3)))
-        self.wlogs = Parameter(torch.log(self.config.w_scale*torch.ones(num_g)))
+        self.precs = Parameter(self.config.cov_dist*(torch.tile(torch.eye(3),(num_g,1,)).reshape((-1,3,3))+ 0.1*torch.randn(num_g,3,3)))
+        self.wlogs = Parameter(torch.log(self.config.w_scale*(0.95+0.1*torch.rand(num_g))))
         self.colors = Parameter(torch.randn((num_g,3)))
 
         # losses
-        self.rgb_loss = L1Loss()
+        self.rgb_loss = MSELoss()#L1Loss()
 
         # renderers
         #self.renderer_rgb = RGBRenderer()#background_color=self.config.background_color)
@@ -120,7 +121,7 @@ class FMBModel(Model):
 
         else:
             # dummy background model
-            self.field_background = Parameter(torch.randn(3))
+            self.field_background = Parameter(torch.randn(1,3))
 
 
         # metrics
@@ -149,7 +150,7 @@ class FMBModel(Model):
         if self.means is None:
             raise ValueError("populate_fields() must be called before get_outputs")
 
-        tprec = torch.transpose(torch.triu(self.precs),1,2)
+        tprec = torch.tril(self.precs)
 
         # basic quantities compute
         tt = ray_bundle.origins
@@ -221,16 +222,21 @@ class FMBModel(Model):
         final_z = (1-est_alpha) * self.config.far_plane_bg + est_alpha * final_z
         final_norm = (1-pad_alpha) * (-tr) + pad_alpha * final_norm
         
-        fg_color = (1-pad_alpha) * 0.5 * torch.ones((1,3),device=obj_color.device) + pad_alpha * obj_color
+        # green bg for foreground
+        fg_bg_c = torch.zeros((1,3),device=obj_color.device) 
+        fg_bg_c[0][1] = 1.0
 
+        fg_color = (1-pad_alpha) * fg_bg_c + pad_alpha * obj_color
         outputs = {
             "rgb": final_color,
             "rgb_fg": fg_color,
-            "rgb_bg": bg_colors,
+            "rgb_bg": fg_color,
             "accumulation": est_alpha,
             "depth": final_z,
             "normals": final_norm,
         }
+        if self.config.background_model == "mlp":
+            outputs['rgb_bg'] = bg_colors
         return outputs
 
     def get_loss_dict(self, outputs, batch, metrics_dict=None) -> Dict[str, torch.Tensor]:
