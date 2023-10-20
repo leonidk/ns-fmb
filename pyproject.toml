@@ -1,7 +1,7 @@
 [project]
 name = "ns-fmb"
 description = "A simple nerfstudio implementation of 3D Gaussian rendering via Fuzzy Metaball equations."
-version = "0.0.4"
+version = "0.0.5"
 
 dependencies = ["nerfstudio >= 0.3.0"] 
 

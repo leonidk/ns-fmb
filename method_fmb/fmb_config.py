@@ -44,24 +44,24 @@ method_fmb = MethodSpecification(
         ),
         optimizers={
             "means": {
-                "optimizer": AdamOptimizerConfig(lr=1.6e-2, eps=1e-15, weight_decay=2e-6),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=4e-7, max_steps=10000),
+                "optimizer": AdamOptimizerConfig(lr=4e-3, eps=1e-15, weight_decay=1e-5),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=2e-7, max_steps=80000),
             },
             "precs": {
-                "optimizer": AdamOptimizerConfig(lr=1.4e-2, eps=1e-15, weight_decay=1e-5),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-7, max_steps=10000),
+                "optimizer": AdamOptimizerConfig(lr=2e-2, eps=1e-15, weight_decay=2e-6),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-6, max_steps=80000),
             },
             "wlog": {
-                "optimizer": AdamOptimizerConfig(lr=4e-1, eps=1e-15, weight_decay=1.5e-7),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-5, max_steps=10000),
+                "optimizer": AdamOptimizerConfig(lr=1e-1, eps=1e-15, weight_decay=2e-7),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=6e-6, max_steps=80000),
             },
             "colors": {
-                "optimizer": AdamOptimizerConfig(lr=2e-2, eps=1e-15, weight_decay=1e-8),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=4e-6, max_steps=10000),
+                "optimizer": AdamOptimizerConfig(lr=1e-1, eps=1e-15, weight_decay=5e-9),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=7e-6, max_steps=80000),
             },
             "background": {
-                "optimizer": AdamOptimizerConfig(lr=1e-3, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=2e-7, max_steps=10000),
+                "optimizer": AdamOptimizerConfig(lr=5e-3, eps=1e-15),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-7, max_steps=80000),
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),

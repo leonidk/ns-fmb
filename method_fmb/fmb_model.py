@@ -19,11 +19,12 @@ from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 
 
-from nerfstudio.field_components.encodings import NeRFEncoding
+from nerfstudio.field_components.encodings import NeRFEncoding, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.vanilla_nerf_field import NeRFField
 from nerfstudio.model_components.ray_samplers import LinearDisparitySampler
+from nerfstudio.fields.nerfacto_field import NerfactoField
 
 # from nerfstudio.models.nerfacto import NerfactoModel, NerfactoModelConfig  # for subclassing Nerfacto model
 from nerfstudio.cameras.rays import RayBundle
@@ -38,23 +39,50 @@ class FMBModelConfig(ModelConfig):
     _target: Type = field(default_factory=lambda: FMBModel)
 
     # bg_settings
-    background_model: Literal["mlp", "color"] = "mlp"
+    background_model: Literal["grid", "mlp", "color", "sh", "hash"] = "mlp"
     far_plane_bg: float = 1000.0
-    num_samples_outside: int = 4
+    num_samples_outside: int = 3
+    bg_size = 256
 
     # init settings
     num_gaussians: int = 40
     mean_dist: float = 1e-3
-    cov_dist: float = 80
+    cov_dist: float = 1
+    cov_scale: float = 30
     w_scale: float = 0.5
 
     # loss settings
-    beta_loss_scale: float = 1e-5
+    beta_loss_scale: float = 2e-5
 
     # render settings
     use_two_param: bool = True
     beta1: float = 24.4
     beta2: float = 3.14
+
+
+def bilinear_interpolate_torch(im, x, y):
+    x0 = torch.floor(x).int()
+    x1 = x0 + 1
+    
+    y0 = torch.floor(y).int()
+    y1 = y0 + 1
+
+    x0 = torch.clamp(x0, 0, im.shape[1]-1)
+    x1 = torch.clamp(x1, 0, im.shape[1]-1)
+    y0 = torch.clamp(y0, 0, im.shape[0]-1)
+    y1 = torch.clamp(y1, 0, im.shape[0]-1)
+    
+    Ia = im[ y0, x0 ]
+    Ib = im[ y1, x0 ]
+    Ic = im[ y0, x1 ]
+    Id = im[ y1, x1 ]
+    
+    wa = ((x1-x) * (y1-y))[:,None]
+    wb = ((x1-x) * (y-y0))[:,None]
+    wc = ((x-x0) * (y1-y))[:,None]
+    wd = ((x-x0) * (y-y0))[:,None]
+
+    return Ia*wa + Ib*wb + Ic*wc + Id*wd
 
 
 class FMBModel(Model):
@@ -105,19 +133,43 @@ class FMBModel(Model):
             direction_encoding = NeRFEncoding(
                 in_dim=3, num_frequencies=4, min_freq_exp=0.0, max_freq_exp=3.0, include_input=True
             )
-            
+            #direction_encoding = SHEncoding()
+
             self.scene_contraction = SceneContraction(order=float("inf"))
             self.field_background = NeRFField(
-                base_mlp_num_layers = 4, 
-                base_mlp_layer_width = 64, 
-                head_mlp_num_layers = 2, 
-                head_mlp_layer_width = 32,
+                #base_mlp_num_layers = 3, 
+                #base_mlp_layer_width = 48, 
+                #head_mlp_num_layers = 2, 
+                #head_mlp_layer_width = 24,
                 position_encoding=position_encoding,
                 direction_encoding=direction_encoding,
                 spatial_distortion=self.scene_contraction,
             )
             self.sampler_bg = LinearDisparitySampler(num_samples=self.config.num_samples_outside)
             self.renderer_rgb = RGBRenderer()
+        elif self.config.background_model == 'hash':
+            self.scene_contraction = SceneContraction(order=float("inf"))
+            self.sampler_bg = LinearDisparitySampler(num_samples=self.config.num_samples_outside)
+            self.renderer_rgb = RGBRenderer()
+            self.field_background = NerfactoField(
+                self.scene_box.aabb,
+                spatial_distortion=self.scene_contraction,
+                num_images=self.num_train_data,
+                use_average_appearance_embedding=False,
+                hidden_dim = 32,
+                hidden_dim_color = 32,
+                num_layers_color = 2,
+                num_levels = 12,
+                base_res  = 8,
+                max_res = 1024,
+                log2_hashmap_size  = 16,
+
+            )
+        elif self.config.background_model == "grid":
+            self.field_background = Parameter(torch.randn((self.config.bg_size,self.config.bg_size,3)))
+        elif self.config.background_model == 'sh':
+            self.encoding = SHEncoding()
+            self.field_background = Parameter(torch.randn((self.encoding.get_out_dim(),3)))
 
         else:
             # dummy background model
@@ -150,7 +202,7 @@ class FMBModel(Model):
         if self.means is None:
             raise ValueError("populate_fields() must be called before get_outputs")
 
-        tprec = torch.tril(self.precs)
+        tprec = self.config.cov_scale*torch.tril(self.precs)
 
         # basic quantities compute
         tt = ray_bundle.origins
@@ -206,7 +258,7 @@ class FMBModel(Model):
 
         pad_alpha = est_alpha[:,None]
         obj_color = w @ torch.sigmoid(self.colors)
-        if self.config.background_model == "mlp":
+        if self.config.background_model == "mlp" or self.config.background_model == "hash":
             ray_bundle.nears = ray_bundle.fars
             ray_bundle.fars = torch.ones_like(ray_bundle.fars) * self.config.far_plane_bg
 
@@ -215,12 +267,25 @@ class FMBModel(Model):
             weights_bg = ray_samples_bg.get_weights(field_outputs_bg[FieldHeadNames.DENSITY])
 
             bg_colors = self.renderer_rgb(rgb=field_outputs_bg[FieldHeadNames.RGB], weights=weights_bg)
+        elif self.config.background_model == 'grid':
+            azimuth = torch.arctan2(tr[:, 1], tr[:, 0])
+            elevation = torch.arctan2(tr[:, 2], torch.sqrt(tr[:, 0]**2 + tr[:, 1]**2))
+            idx1, idx2 = (azimuth+torch.pi)/(2*torch.pi),(elevation+0.5*torch.pi)/torch.pi
+            BG_S = self.config.bg_size
+            #c_look =  self.field_background[(idx1*(BG_S-1)).int(),(idx2*(BG_S-1)).int()]
+            c_look = bilinear_interpolate_torch(self.field_background,idx1*(BG_S-1),idx2*(BG_S-1))
+            bg_colors = torch.sigmoid(c_look)
+        elif self.config.background_model == 'sh' or self.config.background_model == 'hash':
+            product = (self.encoding(tr)[:,:,None] * self.field_background[None]).sum(axis=1)
+            bg_colors = torch.sigmoid(product)
+
         else:
             bg_colors = torch.sigmoid(self.field_background)
 
         final_color = (1-pad_alpha) * bg_colors + pad_alpha * obj_color
         final_z = (1-est_alpha) * self.config.far_plane_bg + est_alpha * final_z
         final_norm = (1-pad_alpha) * (-tr) + pad_alpha * final_norm
+        final_norm = final_norm/torch.linalg.norm(final_norm,axis=1,keepdims=True)
         
         # green bg for foreground
         fg_bg_c = torch.zeros((1,3),device=obj_color.device) 
@@ -232,10 +297,10 @@ class FMBModel(Model):
             "rgb_fg": fg_color,
             "rgb_bg": fg_color,
             "accumulation": est_alpha,
-            "depth": final_z,
+            "depth": final_z[:,None],
             "normals": final_norm,
         }
-        if self.config.background_model == "mlp":
+        if self.config.background_model != "color":
             outputs['rgb_bg'] = bg_colors
         return outputs
 
