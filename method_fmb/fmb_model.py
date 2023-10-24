@@ -16,6 +16,7 @@ from torch.nn import (
 from torchmetrics.functional import structural_similarity_index_measure
 from torchmetrics.image import PeakSignalNoiseRatio
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+from nerfstudio.utils.math import safe_normalize
 
 
 
@@ -46,13 +47,13 @@ class FMBModelConfig(ModelConfig):
 
     # init settings
     num_gaussians: int = 40
-    mean_dist: float = 1e-3
-    cov_dist: float = 1
-    cov_scale: float = 30
+    mean_dist: float = 1e-2
+    cov_dist: float = 0.4
+    cov_scale: float = 70
     w_scale: float = 0.5
 
     # loss settings
-    beta_loss_scale: float = 2e-5
+    beta_loss_scale: float = 3e-6
 
     # render settings
     use_two_param: bool = True
@@ -223,8 +224,8 @@ class FMBModel(Model):
 
         # normal 
         projp2 = torch.einsum('kji,bkj->bki',tprec,projp)
-        projp2_norm = torch.linalg.norm(projp2,dim=2,keepdims=True)
-        norm_b_est = projp2/projp2_norm
+        norm_b_est = safe_normalize(projp2)
+
         norm_sign = -torch.sign(torch.einsum('bki,bi->bk',norm_b_est,tr))
         norm_est = norm_sign[:,:,None] * norm_b_est
 
@@ -254,7 +255,7 @@ class FMBModel(Model):
         w = w/torch.where(wsum!=0,wsum,1)
         final_z = (w*z).sum(axis=1)
         final_norm = (w[:,:,None]*norm_est).sum(axis=1)
-        final_norm = final_norm/torch.linalg.norm(final_norm,axis=1,keepdims=True)
+        final_norm = safe_normalize(final_norm)
 
         pad_alpha = est_alpha[:,None]
         obj_color = w @ torch.sigmoid(self.colors)
@@ -285,7 +286,7 @@ class FMBModel(Model):
         final_color = (1-pad_alpha) * bg_colors + pad_alpha * obj_color
         final_z = (1-est_alpha) * self.config.far_plane_bg + est_alpha * final_z
         final_norm = (1-pad_alpha) * (-tr) + pad_alpha * final_norm
-        final_norm = final_norm/torch.linalg.norm(final_norm,axis=1,keepdims=True)
+        final_norm = safe_normalize(final_norm)
         
         # green bg for foreground
         fg_bg_c = torch.zeros((1,3),device=obj_color.device) 
@@ -298,7 +299,7 @@ class FMBModel(Model):
             "rgb_bg": fg_color,
             "accumulation": est_alpha,
             "depth": final_z[:,None],
-            "normals": final_norm,
+            "normals": 0.5+0.5*final_norm, # strange? But exporters wants [0,1]
         }
         if self.config.background_model != "color":
             outputs['rgb_bg'] = bg_colors
@@ -314,6 +315,8 @@ class FMBModel(Model):
 
         clip_alpha = torch.clamp(outputs["accumulation"],0.01,0.99)
         beta_loss = torch.log(clip_alpha) + torch.log(1-clip_alpha)
+        #if torch.isnan(rgb_loss_fine).item():
+        #    raise ValueError("NaN Loss")
         loss_dict = {"rgb_loss": rgb_loss_fine, 'beta_loss': self.config.beta_loss_scale*beta_loss.mean()}
         #print(loss_dict)
         return loss_dict
