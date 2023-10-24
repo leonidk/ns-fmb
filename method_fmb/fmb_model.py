@@ -47,13 +47,13 @@ class FMBModelConfig(ModelConfig):
 
     # init settings
     num_gaussians: int = 40
-    mean_dist: float = 1e-2
+    mean_dist: float = 7e-3
     cov_dist: float = 0.6
-    cov_scale: float = 65
+    cov_scale: float = 60
     w_scale: float = 0.5
 
     # loss settings
-    beta_loss_scale: float = 3e-6
+    beta_loss_scale: float = 2e-6
 
     # render settings
     use_two_param: bool = True

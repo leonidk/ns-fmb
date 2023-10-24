@@ -21,6 +21,7 @@ from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataPars
 from nerfstudio.engine.optimizers import AdamOptimizerConfig 
 from nerfstudio.engine.schedulers import (
     ExponentialDecaySchedulerConfig,
+    MultiStepSchedulerConfig
 )
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.plugins.types import MethodSpecification
@@ -30,7 +31,7 @@ method_fmb = MethodSpecification(
         method_name="fmb", 
         steps_per_eval_batch=500,
         steps_per_save=1000,
-        max_num_iterations=3000,
+        max_num_iterations=12000,
         mixed_precision=True,
         pipeline=VanillaPipelineConfig(
             datamanager=VanillaDataManagerConfig(
@@ -44,24 +45,24 @@ method_fmb = MethodSpecification(
         ),
         optimizers={
             "means": {
-                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=6e-6),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=55000),
+                "optimizer": AdamOptimizerConfig(lr=8e-3, eps=1e-15, weight_decay=6e-6),
+                "scheduler": MultiStepSchedulerConfig(milestones=[1500, 3000, 6000]),
             },
             "precs": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=2e-6),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=55000),
+                "scheduler": MultiStepSchedulerConfig(milestones=[1500, 3000, 6000]),
             },
             "wlog": {
                 "optimizer": AdamOptimizerConfig(lr=2e-3, eps=1e-15, weight_decay=2e-6),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=2e-8, max_steps=55000),
+                "scheduler": MultiStepSchedulerConfig(milestones=[1500, 3000, 6000]),
             },
             "colors": {
                 "optimizer": AdamOptimizerConfig(lr=2e-2, eps=1e-15, weight_decay=1e-8),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=2e-7, max_steps=55000),
+                "scheduler": MultiStepSchedulerConfig(milestones=[1500, 3000, 6000]),
             },
             "background": {
                 "optimizer": AdamOptimizerConfig(lr=3e-3, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=5e-8, max_steps=55000),
+                "scheduler": MultiStepSchedulerConfig(milestones=[1500, 3000, 6000]),
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
