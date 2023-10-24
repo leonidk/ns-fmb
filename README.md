@@ -1,6 +1,8 @@
 # nerfstudio fuzzy metaball reference
 This is a [Nerfstudio](https://github.com/nerfstudio-project/nerfstudio) implementation of the [Fuzzy Metaball](leonidk.github.io/fmb-plus) rendering methods. The enable optimization with purely color-based losses, this includes a far-field NeRF to model the background. The Gaussians then organize into modeling just the foreground object. 
 
+The Fuzzy Metaballs project focused on shape optimization, with no priors, with very few 3D Gaussians (for robustness, simplicitly, speed, etc.), so this implementation defaults to using 40 Gaussians. This produces novel view synthesis that is worse NeRF methods (e.g. about 18 to 20 PSNR), but reasonable, simplified geometric reconstructions. Adding smarter colors to each Gaussian (e.g. spherical harmonics, MLPs, or textures) would certainly improve PSNR, but isn't done for this example.  
+
 ## Result
 Example reconstruction of Nerfstudio plane and sculpture sequences with **40 Gaussians**. This using posed color images (no masks, no flow) and random initialization from a small sphere, with a few thousand iterations of optimization. 
 
