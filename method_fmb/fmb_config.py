@@ -44,24 +44,24 @@ method_fmb = MethodSpecification(
         ),
         optimizers={
             "means": {
-                "optimizer": AdamOptimizerConfig(lr=6e-3, eps=1e-15, weight_decay=5e-6),
+                "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=6e-6),
                 "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=55000),
             },
             "precs": {
                 "optimizer": AdamOptimizerConfig(lr=1e-2, eps=1e-15, weight_decay=2e-6),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=2e-7, max_steps=55000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=1e-7, max_steps=55000),
             },
             "wlog": {
-                "optimizer": AdamOptimizerConfig(lr=3e-3, eps=1e-15, weight_decay=2e-6),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=4e-8, max_steps=55000),
+                "optimizer": AdamOptimizerConfig(lr=2e-3, eps=1e-15, weight_decay=2e-6),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=2e-8, max_steps=55000),
             },
             "colors": {
                 "optimizer": AdamOptimizerConfig(lr=2e-2, eps=1e-15, weight_decay=1e-8),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=3e-7, max_steps=55000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=2e-7, max_steps=55000),
             },
             "background": {
                 "optimizer": AdamOptimizerConfig(lr=3e-3, eps=1e-15),
-                "scheduler": ExponentialDecaySchedulerConfig(lr_final=4e-8, max_steps=55000),
+                "scheduler": ExponentialDecaySchedulerConfig(lr_final=5e-8, max_steps=55000),
             },
         },
         viewer=ViewerConfig(num_rays_per_chunk=1 << 15),

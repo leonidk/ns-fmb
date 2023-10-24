@@ -48,8 +48,8 @@ class FMBModelConfig(ModelConfig):
     # init settings
     num_gaussians: int = 40
     mean_dist: float = 1e-2
-    cov_dist: float = 0.4
-    cov_scale: float = 70
+    cov_dist: float = 0.6
+    cov_scale: float = 65
     w_scale: float = 0.5
 
     # loss settings
