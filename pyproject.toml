@@ -1,13 +1,13 @@
 [project]
 name = "ns-fmb"
 description = "A simple nerfstudio implementation of 3D Gaussian rendering via Fuzzy Metaball equations."
-version = "0.0.5"
+version = "0.0.6"
 
 dependencies = ["nerfstudio >= 0.3.0"] 
 
 [tool.setuptools.packages.find]
 include = ["method_fmb*"]
 
-# register the entry point of your new method here:
+# register the entry point here:
 [project.entry-points.'nerfstudio.method_configs']
 method-fmb = 'method_fmb.fmb_config:method_fmb'
