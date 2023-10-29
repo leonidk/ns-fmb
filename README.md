@@ -10,7 +10,7 @@ https://github.com/leonidk/ns-fmb/assets/645763/bd7bee47-83f3-4f7f-835f-19e99ff4
 
 https://github.com/leonidk/ns-fmb/assets/645763/a94f5f25-7c1c-4439-8262-3d62ece113fe
 
-You can see how the forty Gaussians distribute themselves to model the foreground. Of note, some Gaussians are used to model the shadows and the specularities and other color-specific features. 
+You can see how the forty Gaussians distribute themselves to model the foreground. Of note, some Gaussians are used to model the shadows and the specularities and other color-specific features. The default learning rates are reasonable for real sequences, but may be too high for synthetic sequences with no real backgrounds. 
 
 
 ## Registering with Nerfstudio
